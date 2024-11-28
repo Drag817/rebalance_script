@@ -11,7 +11,7 @@ from loguru import logger
 from fake_useragent import UserAgent
 from aiohttp_socks import ProxyConnector
 
-from config import SUSHI_SWAP_ABI, position_safe_limit
+from files.config import SUSHI_SWAP_ABI, position_safe_limit, price_range, position_total_amount_ETH
 from utils import Wallet, get_proxies, get_price, approved, approve
 from contracts import Contract, Token, Arbitrum_USDC, Arbitrum_ETH
 from networks import Network
@@ -65,8 +65,8 @@ async def create_position(wallet: Wallet, chain: Network, eth_amount: float) -> 
                         logger.warning(f"({_ + 1}|3) [{res.status}] {await res.text()}")
                         await asyncio.sleep(random.randint(1, 5))
 
-        tick_lower = current_tick - 150
-        tick_upper = current_tick + 150
+        tick_lower = current_tick - int(10 * int(price_range / 2 * 3 / 10))
+        tick_upper = current_tick + int(10 * int(price_range / 2 * 3 / 10))
         token_one_amount = int(eth_amount * (10 ** 18))
         token_two_amount = int(((eth_amount * await get_price("ETH")) * (10 ** 6)) * 0.995)
         token_one_min = int(token_one_amount * random.uniform(0.65, 0.75))
@@ -212,10 +212,10 @@ async def sushi_swap(wallet: Wallet, token_in: Token, token_out: Token, amount: 
             amount = await token_in.contract.functions.balanceOf(wallet.address).call()
 
     if amount == 0:
-        logger.error(f"There is no {token_in.symbol} on {wallet.address}!")
-        raise Exception(f"There is no {token_in.symbol} on {wallet.address}!")
+        logger.error(f"{wallet.address}: There is no {token_in.symbol} on {wallet.address}!")
+        raise Exception(f"{wallet.address}: There is no {token_in.symbol} on {wallet.address}!")
 
-    logger.info(f"Try swap {round(amount / (10 ** token_in.decimals), int(token_in.decimals / 3))} {token_in.symbol} to {token_out.symbol} in {token_in.chain.name}: {wallet.address} ...")
+    logger.info(f"{wallet.address}: Try swap {round(amount / (10 ** token_in.decimals), int(token_in.decimals / 3))} {token_in.symbol} to {token_out.symbol} in {token_in.chain.name}: {wallet.address} ...")
 
     url = f"https://api.sushi.com/swap/v4/{token_in.chain.chain_id}"
     # url = f"https://api.sushi.com/swap/v5/{token_in.chain.chain_id}"
@@ -325,7 +325,7 @@ async def sushi_swap(wallet: Wallet, token_in: Token, token_out: Token, amount: 
     tx_receipt = await SushiSwap.chain.provider.eth.wait_for_transaction_receipt(send_txn)
 
     if tx_receipt['status'] == 1:
-        logger.success(f"Swapped {round(amount / (10 ** token_in.decimals), int(token_in.decimals / 3))} {token_in.symbol} in {round(amount_out / (10 ** token_out.decimals), int(token_out.decimals / 3))} {token_out.symbol} | {tx_receipt['transactionHash'].hex()}")
+        logger.success(f"{wallet.address}: Swapped {round(amount / (10 ** token_in.decimals), int(token_in.decimals / 3))} {token_in.symbol} in {round(amount_out / (10 ** token_out.decimals), int(token_out.decimals / 3))} {token_out.symbol} | {tx_receipt['transactionHash'].hex()}")
 
         # if token_out.address != "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE":
         #     balance = await token_out.contract.functions.balanceOf(wallet.address).call()
@@ -339,8 +339,8 @@ async def sushi_swap(wallet: Wallet, token_in: Token, token_out: Token, amount: 
         return
 
     else:
-        logger.error(f"Not swapped!")
-        raise Exception("Not swapped!")
+        logger.error(f"{wallet.address}: Not swapped!")
+        raise Exception(f"{wallet.address}: Not swapped!")
 
 
 async def remove_liquidity(wallet: Wallet, chain: Network) -> None:
@@ -427,8 +427,8 @@ async def remove_liquidity(wallet: Wallet, chain: Network) -> None:
         return
 
     else:
-        logger.error(f"Not removed {wallet.address} [{tx}: {tx_receipt}]")
-        raise Exception(f"Not removed {wallet.address} [{tx}: {tx_receipt}]")
+        logger.error(f"{wallet.address}: Not removed {wallet.address} [{tx}: {tx_receipt}]")
+        raise Exception(f"{wallet.address}: Not removed {wallet.address} [{tx}: {tx_receipt}]")
 
 
 async def rebalance_position(wallet: Wallet, chain: Network, eth_amount: float) -> None:
@@ -453,11 +453,27 @@ async def position_in_safe(wallet: Wallet):
     eth_price = await get_price("ETH")
 
     if wallet.position["low_price"] + safe_limit < eth_price < wallet.position["high_price"] - safe_limit:
-        logger.success(f"Position in safe range: {wallet.position['low_price'] + safe_limit} <> {wallet.position['high_price'] - safe_limit}, current ETH price: {eth_price} USD")
+        logger.success(f"{wallet.address}: Position in safe range [{position_safe_limit}%]: {wallet.position['low_price'] + safe_limit} <> {wallet.position['high_price'] - safe_limit}, current ETH price: ${eth_price}")
         return True
 
     else:
-        logger.warning(f"Position out safe range: {wallet.position['low_price'] + safe_limit} <> {wallet.position['high_price'] - safe_limit}, current ETH price: {eth_price} USD, rebalancing ...")
+        logger.warning(f"{wallet.address}: Position out safe range [{position_safe_limit}%]: {wallet.position['low_price'] + safe_limit} <> {wallet.position['high_price'] - safe_limit}, current ETH price: ${eth_price}, rebalancing ...")
         return False
 
 
+async def valid_config_position_amount(wallet: Wallet, chain: Network):
+    amount = await chain.provider.eth.get_balance(wallet.address)
+
+    if position_total_amount_ETH > amount / (10 ** 18):
+        eth_price = await get_price("ETH")
+        stable_amount = await Arbitrum_USDC.contract.functions.balanceOf(wallet.address).call()
+
+        if stable_amount / (10 ** Arbitrum_USDC.decimals) > (position_total_amount_ETH / 2) * eth_price:
+            return True
+
+        else:
+            logger.error(f"{wallet.address} has not enough balance to create a position!")
+            return False
+
+    else:
+        return True

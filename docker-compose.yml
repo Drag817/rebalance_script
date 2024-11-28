@@ -1,0 +1,16 @@
+services:
+  uniswap_position:
+    image: uniswap_position:latest
+    stdin_open: true
+    volumes:
+      - ./logs/:/app/logs/
+      - ./files/:/app/files/
+    container_name: uniswap_position
+    restart: always
+    environment:
+      - PASS=${PASS}
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"

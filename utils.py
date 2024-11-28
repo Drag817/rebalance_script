@@ -17,21 +17,19 @@ from Crypto.Protocol.KDF import PBKDF2
 
 from networks import Etherium
 from contracts import Token
-from config import script_name, consumer_tg_id, tg_bot_token
+from files.config import *
 
 
 class Wallet:
     def __init__(
             self,
             private_key: str,
-            done_wallets: list,
             cluster: int | None = None,
             back_wallet: str | None = None
     ):
 
         self.private_key = private_key
         self.address = Etherium.eth.account.from_key(self.private_key).address
-        self.valid = True if self.address not in done_wallets else False
         self.back_wallet = Web3.to_checksum_address(back_wallet) if back_wallet else None
         self.cluster = cluster if cluster else 0
 
@@ -95,7 +93,6 @@ def decrypt_private_key(encrypted_base64_pk, password):
 
 def load_and_decrypt_wallets(filename, password='', shuffle=False):
     lines = load_lines(filename)
-    done_wallets = load_lines("files/done_wallets.txt")
     wallets = []
 
     for line in lines:
@@ -107,12 +104,9 @@ def load_and_decrypt_wallets(filename, password='', shuffle=False):
 
         wallets.append(
             Wallet(
-                private_key=_pkey,
-                done_wallets=done_wallets
+                private_key=_pkey
             )
         )
-
-    wallets = [wallet for wallet in wallets if wallet.valid]
 
     if shuffle:
         random.shuffle(wallets)
@@ -182,11 +176,11 @@ async def approved(token: Token, spender: str, amount: int, wallet: Wallet) -> b
     ).call()
 
     if allowance >= amount:
-        logger.success(f"Already approved {round(amount / (10 ** token.decimals), int(token.decimals / 3))} {token.symbol}")
+        logger.success(f"{wallet.address}: Already approved {round(amount / (10 ** token.decimals), int(token.decimals / 3))} {token.symbol}")
         return True
 
     else:
-        logger.info(f"Need to approve {round(amount / (10 ** token.decimals), int(token.decimals / 3))} {token.symbol}")
+        logger.info(f"{wallet.address}: Need to approve {round(amount / (10 ** token.decimals), int(token.decimals / 3))} {token.symbol}")
         return False
 
 
@@ -211,3 +205,27 @@ async def approve(token: Token, spender: str, amount: int, wallet: Wallet) -> No
     else:
         logger.error(f"{wallet.address}: Not approved [{tx}: {tx_receipt}]")
         raise Exception(f"{wallet.address}: Not approved [{tx}: {tx_receipt}]")
+
+
+async def valid_config() -> bool:
+    eth_price = await get_price("ETH")
+
+    if price_range / 2 > eth_price:
+        logger.error(f"'price_range' is too high: current price is {eth_price}, "
+                     f"range is {eth_price - price_range / 2} - {eth_price + price_range / 2}")
+        return False
+
+    if position_safe_limit > 100:
+        logger.error(f"'position_safe_limit' if {position_safe_limit}, must be lower than 100")
+        return False
+
+    if not os.path.isfile(wallets_file):
+        logger.error(f"There is no 'wallets.txt' file")
+        return False
+
+    logger.info(f"Config is valid: current ETH price is {eth_price}, "
+                f"range is {eth_price - price_range / 2} - {eth_price + price_range / 2}, "
+                f"position safe limit: {position_safe_limit}%, "
+                f"check interval: {check_interval} min")
+
+    return True

@@ -2,12 +2,11 @@ script_name = "test_script"
 tg_bot_token = ""
 consumer_tg_id = 0
 
-wallets_file = "wallets.txt"
-wallets_password = "qwerty123"
+wallets_file = "files/wallets.txt"
 shuffle_wallets = False
 
-position_total_amount_ETH = 0.002
-# position_total_amount_ETH = 0.03 # TODO: check if balance enough
+position_total_amount_ETH = 0.002 # total spendable ETH amount for creating position
+price_range = 100 # if 100 and ETH price 3000, range will be 2950-3050
 position_safe_limit = 10 # % to reaching limits
 check_interval = 10 # minutes
 
