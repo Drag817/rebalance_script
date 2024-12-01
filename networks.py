@@ -6,6 +6,8 @@ from web3 import Web3
 from web3.eth import AsyncEth
 from web3.middleware import async_geth_poa_middleware
 
+from files.config import ARBITRUM_RPC
+
 
 class Network(Web3):
     def __init__(
@@ -80,7 +82,7 @@ Etherium = Network(
 )
 
 Arbitrum = Network(
-    url=["https://arbitrum.meowrpc.com", "https://api.zan.top/arb-one"],
+    url=ARBITRUM_RPC,
     chain_id=42161,
     name="Arbitrum",
     symbol="ETH"
